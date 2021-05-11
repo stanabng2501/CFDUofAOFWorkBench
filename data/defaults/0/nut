@@ -1,0 +1,57 @@
+%{%(physics/Turbulence%)
+%:RANS
+%[_header%]
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      nut;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 2 -1 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+
+%{%(boundaries%)
+%{%(boundaries/%(0%)/BoundaryType%)
+%:empty
+%[0/_boundary_empty%]
+%:wall
+%{%(boundaries/%(0%)/BoundarySubType%)
+%:fixedWall translatingWall partialSlipWall
+    %(0%)
+    {
+        type        nutkWallFunction;
+        value       uniform 0;
+    }
+%:slipWall
+%[0/_boundary_zeroGradient%]
+%:roughWall
+    %(0%)
+    {
+        type        nutkRoughWallFunction;
+        Ks          %(boundaries/%(0%)/RoughnessHeight%); //TODO
+        Cs          %(boundaries/%(0%)/RoughnessConstant%); //TODO
+        value       uniform 0;
+    }
+%}
+%:constraint
+%[0/_boundary_constraint%]
+%:default
+%[0/_boundary_calculated%]
+%}
+
+%}
+%{defaultFaces
+%[0/_boundary_zeroGradient%]
+%}
+
+}
+
+// ************************************************************************* //
+%}

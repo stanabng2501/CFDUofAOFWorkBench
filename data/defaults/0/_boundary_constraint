@@ -1,0 +1,16 @@
+%{%(boundaries/%(0%)/BoundarySubType%)
+%:symmetry
+    %(0%)
+    {
+        type        symmetry;
+        value       $internalField;
+    }
+%:cyclic
+    %(0%)
+    {
+        type        cyclic;
+        value       $internalField;
+    }
+%:twoDBoundingPlane
+%[0/_boundary_empty%]
+%}

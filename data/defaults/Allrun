@@ -1,0 +1,123 @@
+#!/bin/bash
+
+runCommand()
+{
+    if [ "$1" == "mpiexec" ]; then sol="$4"; else sol="$1"; fi
+    sol=$(basename -- "$sol")
+    sol="${sol%.*}"
+    if [ -f log."$sol" ]; then rm log."$sol"; fi
+    "$@" 1> >(tee -a log."$sol") 2> >(tee -a log."$sol" >&2)
+    err=$?
+    if [ ! $err -eq 0 ]; then exit $err; fi
+}
+
+%{%(system/FoamRuntime%)
+%:MinGW
+%:WindowsDocker
+%:BlueCFD
+%:BlueCFD2
+%:default
+# Unset and source bashrc
+FOAMDIR="%(system/TranslatedFoamPath%)"
+source "$FOAMDIR/etc/config.sh/unset" 2> /dev/null
+source "$FOAMDIR/etc/bashrc"
+
+%}
+# Copy mesh from mesh case dir if available
+MESHDIR="%(meshDir%)"
+if [ -f "$MESHDIR"/constant/polyMesh/faces ]
+then
+    rm -r constant/polyMesh 2> /dev/null
+    cp -r "$MESHDIR"/constant/polyMesh constant/polyMesh
+elif [ ! -f constant/polyMesh/faces ]
+then
+    echo "Fatal error: Unable to find mesh in directory $MESHDIR" 1>&2
+    exit 1
+fi
+
+# Detect available turbulence lib
+if [ -f "$FOAM_LIBBIN/libmomentumTransportModels.so" ]
+then
+    echo \"libmomentumTransportModels.so\" > system/turbulenceLib
+else
+    echo \"libturbulenceModels.so\" > system/turbulenceLib
+fi
+
+# Update patch name and type
+runCommand createPatch -overwrite
+
+%{%(zonesPresent%)
+%:True
+# Scaling .stl files exported from FreeCAD from mm to m
+%{%(zones%)
+%{%(zones/%(0%)/PartNameList%)
+runCommand surfaceTransformPoints -scale "(0.001 0.001 0.001)" "constant/triSurface/%(0%).stl" "constant/triSurface/%(0%)Scaled.stl"
+
+%}
+%}
+# Set cell zones contained inside the .stl surfaces
+runCommand topoSet -dict system/topoSetZonesDict
+
+%}
+%{%(initialisationZonesPresent%)
+%:True
+# Set internal fields according to setFieldsDict
+runCommand setFields
+
+%}
+%{%(bafflesPresent%)
+%:True
+%{%(createPatchesFromSnappyBaffles%)
+%:False
+# Combine mesh faceZones
+runCommand topoSet -dict system/topoSetBafflesDict
+
+# Creating baffles
+runCommand createBaffles -overwrite
+
+%}
+%}
+%{%(runChangeDictionary%)
+%:True
+# Update patch name and type
+runCommand changeDictionary
+
+%}
+%{%(initialValues/PotentialFlow%)
+%:True
+%{%(solver/SolverName%)
+%:buoyantSimpleFoam buoyantPimpleFoam interFoam multiphaseInterFoam
+PNAME=p_rgh
+%:default
+PNAME=p
+%}
+# Initialise flow
+%{%(bafflesPresent%)
+%:True
+# Baffle BC does not work with potentialFoam; do not initialise p
+runCommand potentialFoam -initialiseUBCs -pName $PNAME
+%:default
+%{%(initialValues/PotentialFlowP%)
+%:True
+runCommand potentialFoam -initialiseUBCs -pName $PNAME -writep
+%:default
+runCommand potentialFoam -initialiseUBCs -pName $PNAME
+%}
+%}
+%{%(solver/SolverName%)
+%:buoyantSimpleFoam buoyantPimpleFoam interFoam multiphaseInterFoam
+# Remove phi with wrong units
+rm 0/phi
+%}
+
+%}
+%{%(solver/Parallel%)
+%:True
+# Run application in parallel
+runCommand decomposePar -force
+runCommand mpiexec -np %(solver/ParallelCores%) %(solver/SolverName%) -parallel
+%:False
+# Run application
+runCommand %(solver/SolverName%)
+%}
+
